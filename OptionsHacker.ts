@@ -15,8 +15,10 @@
 #     NPTrading
 #
 
+    declare once_per_bar;
+declare hide_on_intraday;
 declare lower;
-def version = 0.2;
+def version = 0.3;
 
 #-----------------------------------------------------------------------------------------------------------------#
 # Settings
@@ -26,13 +28,13 @@ DefineGlobalColor("Call", Color.GREEN);
 DefineGlobalColor("Put", Color.RED);
 DefineGlobalColor("CallCloud",Color.DARK_GREEN);
 DefineGlobalColor("PutCloud",Color.DARK_RED);
+DefineGlobalColor("CallAverage",Color.LIGHT_GREEN);
+DefineGlobalColor("PutAverage",Color.ORANGE);
 DefineGlobalColor("GEX",Color.CYAN);
 
-#hint Mode: The mode to select an option symbol. \n AUTO will try to find the option symbol based on the Series and StrikeDepth inputs. \n MANUAL allow an override of the AUTO behavior by using the ManualCenterStrike and ManualStrikeSpacing inputs to determine the option symbol.
-input Mode = {default AUTO, MANUAL};
 
 #hint Series: The option expiration series to search. \n This value is used to determine the option symbol.
-input Series = {
+    input Series = {
     default Weekly,
     Opex,
     Month1,
@@ -46,51 +48,74 @@ input Series = {
     Month9
 };
 
+# Todo: Maybe can add something like this to get more than just fridays ...
+#hint OpexDay:
+    #input OpexDay = {
+#    Monday,
+    #    Tuesday,
+    #    Wednesday,
+    #    Thursday,
+    #    default Friday
+#};
+
 #hint DataType: The type of option data to show.
-input DataType = {default OpenInterest, Volume, GammaExposure};
+    input DataType = {default OpenInterest, Volume, GammaExposure};
 
 #hint StrikeDepth: The level of depth to search a series. (+/- this far from ATM)
 input StrikeDepth = 10;
 
-#hint CenterStrikeOffset: The offset to use when calculating the center strike based on close price. \n Examples: \n   1 = nearest $1 interval \n   10 = nearest $10 interval. 
-input CenterStrikeOffset = 1.0;
+#hint CenterStrikeOffset: The offset to use when calculating the center strike based on close price. \n Examples: \n   1 = nearest $1 interval \n   10 = nearest $10 interval.
+    input CenterStrikeOffset = 1.0;
 
 #hint MaxStrikeSpacing: The maximum dollar amount between two adjacent contracts.
-input MaxStrikeSpacing = 25;
+    input MaxStrikeSpacing = 25;
 
-#hint ManualCenterStrike: The starting price to use when in MANUAL mode.
-input ManualCenterStrike = 440;
-
-#hint ManualStrikeSpacing: The dollar amount between two adjacent contracts to use when in MANUAL mode.
-input ManualStrikeSpacing = 1.0;
-
-#hint GEXCalculationMethod: The method to use for calculating gamma exposure. \n The total gamma exposure is then the sum of all call gex + put gex. \n <li>ContributionShares: gamma * OI * 100 (* -1 for puts)</li><li>Contribution: gamma * OI * 100 * Spot Price (* -1 for puts)</li><li>ContributionPercent: gamma * OI * 100 * Spot Price ^2 * 0.01 (* -1 for puts)</li>
+#hint GEXCalculationMethod: The method to use for calculating gamma exposure. \n The total gamma exposure is then the sum of all call gex + put gex. \n <li>ContributionShares: \n gamma * OI * 100 (* -1 for puts)</li><li>Contribution: \n gamma * OI * 100 * Spot Price (* -1 for puts)</li><li>ContributionPercent: \n gamma * OI * 100 * Spot Price ^2 * 0.01 (* -1 for puts)</li>
 input GEXCalculationMethod = {default ContributionShares, Contribution, ContributionPercent};
 
 #hint ShowStrikeInfo: Show the strike info labels.
-input ShowStrikeInfo = yes;
+    input ShowStrikeInfo = yes;
 
-#hint ShowLabels: Show the open interest labels.
-input ShowLabels = yes;
+#hint ShowLabels: Show labels for the current data type.
+    input ShowLabels = yes;
 
-#hint ShowClouds: Show the open interest clouds.
-input ShowClouds = yes;
+#hint ShowClouds: Show clouds for volume and/or open interest.
+    input ShowClouds = yes;
 
-#hint ShowLines: Show the open interest lines.
-input ShowLines = yes;
+#hint ShowLines: Show lines for values.
+                                    input ShowLines = yes;
 
 #hint ShowAverages: Show the moving average lines.
-input ShowAverages = yes;
+    input ShowAverages = yes;
 
 #hint ShowGreeks: Show the estimated Greek calculation labels for the latest bar.
-input ShowGreeks = yes;
+    input ShowGreeks = yes;
+
+#hint FlipPuts: Flip the puts underneath the axis
+input FlipPuts = yes;
+
+#hint StrikeMode: The mode to select an option symbol. \n AUTO will try to find the option symbol based on the Series and StrikeDepth inputs. \n MANUAL allows an override of the AUTO behavior by using the ManualCenterStrike and ManualStrikeSpacing inputs to determine the option symbol.
+    input StrikeMode = {default AUTO, MANUAL};
+
+#hint ManualCenterStrike: The starting price to use when in MANUAL mode.
+    input ManualCenterStrike = 440;
+
+#hint ManualStrikeSpacing: The dollar amount between two adjacent contracts to use when in MANUAL mode.
+    input ManualStrikeSpacing = 1.0;
+
 
 
 #-----------------------------------------------------------------------------------------------------------------#
 # Date, Symbol, and Strike
+#
+
+#script ExpirationDate {
+
+    #    plot ExpirationDate = 0;
+    #}
 
 # OptionSeries is the expiry starting at 1 and raising by one for each next expiry.
-def OptionSeries;
+    def OptionSeries;
 switch (Series) {
     case Weekly:
         OptionSeries = 1;
@@ -132,10 +157,10 @@ def CurrentDayOfMonth = GetDayOfMonth(CurrentDate);
 def FirstDayThisMonth = GetDayOfWeek((CurrentYear * 10000) + (CurrentMonth * 100) + 1);
 
 # Get the first upcoming friday
-def FirstUpcomingFriday = 
-    if FirstDayThisMonth < 6 then 6 - FirstDayThisMonth
-    else if FirstDayThisMonth == 6 then 7
-    else 6
+def FirstUpcomingFriday =
+if FirstDayThisMonth < 6 then 6 - FirstDayThisMonth
+else if FirstDayThisMonth == 6 then 7
+else 6
 ;
 
 # Get the second, third, and fourth upcoming fridays
@@ -144,11 +169,11 @@ def ThirdUpcomingFriday = FirstUpcomingFriday + 14;
 def FourthUpcomingFriday = FirstUpcomingFriday + 21;
 
 # Get the month of expiration for the option, accounting for end of month rollover
-def ExpMonth1 = 
-    if Series == Series.Opex and ThirdUpcomingFriday > CurrentDayOfMonth then CurrentMonth
-    else if Series == Series.Opex and ThirdUpcomingFriday < CurrentDayOfMonth then CurrentMonth + 1
-    else if FourthUpcomingFriday > CurrentDayOfMonth then CurrentMonth + OptionSeries - 2
-    else CurrentMonth + OptionSeries - 1
+def ExpMonth1 =
+if Series == Series.Opex and ThirdUpcomingFriday > CurrentDayOfMonth then CurrentMonth
+else if Series == Series.Opex and ThirdUpcomingFriday < CurrentDayOfMonth then CurrentMonth + 1
+else if FourthUpcomingFriday > CurrentDayOfMonth then CurrentMonth
+else CurrentMonth + 1
 ;
 
 # Get the month of expiration for the option, accounting for end of year rollover
@@ -158,13 +183,13 @@ def ExpMonth = if ExpMonth1 > 12 then ExpMonth1 - 12 else ExpMonth1;
 def ExpYear = if ExpMonth1 > 12 then CurrentYear + 1 else CurrentYear;
 
 # Get the first day at the current expiration year and month
-def ExpDay1DOW = GetDayOfWeek(ExpYear * 10000 + ExpMonth * 100 + 1); 
+def ExpDay1DOW = GetDayOfWeek(ExpYear * 10000 + ExpMonth * 100 + 1);
 
 # Get the first friday at the current expiration year and month
-def ExpFirstFridayDOM = 
-    if ExpDay1DOW < 6 then 6 - ExpDay1DOW
-    else if ExpDay1DOW == 6 then 7
-    else 6
+def ExpFirstFridayDOM =
+if ExpDay1DOW < 6 then 6 - ExpDay1DOW
+else if ExpDay1DOW == 6 then 7
+else 6
 ;
 
 # Get the second, third, and fourth fridays at the current expiration year and month
@@ -173,106 +198,132 @@ def ExpThirdFridayDOM = ExpFirstFridayDOM + 14;
 def ExpFouthFridayDOM = ExpFirstFridayDOM + 21;
 
 # Get the day of month of expiration for the option
-def ExpDOM = 
-    if CurrentDayOfMonth < ExpFirstFridayDOM -1 then FirstUpcomingFriday
-    else if between(CurrentDayOfMonth, ExpFirstFridayDOM, SecondUpcomingFriday - 1) then SecondUpcomingFriday
-    else if between(CurrentDayOfMonth, SecondUpcomingFriday, ThirdUpcomingFriday - 1) then ThirdUpcomingFriday
-    else if between(CurrentDayOfMonth, ThirdUpcomingFriday, FourthUpcomingFriday - 1) then FourthUpcomingFriday
-    else ExpFirstFridayDOM
+def ExpDOM =
+if Series == Series.Opex then ExpThirdFridayDOM
+else if CurrentDayOfMonth < ExpFirstFridayDOM -1 then FirstUpcomingFriday
+else if between(CurrentDayOfMonth, ExpFirstFridayDOM, SecondUpcomingFriday - 1) then SecondUpcomingFriday
+else if between(CurrentDayOfMonth, SecondUpcomingFriday, ThirdUpcomingFriday - 1) then ThirdUpcomingFriday
+else if between(CurrentDayOfMonth, ThirdUpcomingFriday, FourthUpcomingFriday - 1) then FourthUpcomingFriday
+else ExpFirstFridayDOM
 ;
 
-# Option Expiration Date - This is still some voodoo to me ... use like AsPrice(OptionExpiryDate - 20000001) to get string value
-def OptionExpiryDate = 
-    if Series == Series.Opex then ExpYear * 10000 + ExpMonth * 100 + ExpThirdFridayDOM + 1
-    else ExpYear * 10000 + ExpMonth * 100 + ExpDOM + 1
+# Option Expiration Date - Depending on selected series
+def OpexDate_NoHolidays = ExpYear * 10000 + ExpMonth * 100 + ExpDOM;
+
+# Option Expiration Date - Accounting for holidays
+    def OpexDate =
+if ExpMonth == 4 and ExpDOM == 15 then OpexDate_NoHolidays - 1 else OpexDate_NoHolidays # Exchange holiday on April 15, 2022
 ;
+
+# The OpexCode is the expiry date in the format of an option symbol.
+    # Example:
+#     The date of expiry is April 15th, 2022.
+#     The format of this date from the code we have above, the OptionExpiryDate, would be 20,220,415
+#     Options symbols expect the format for this date as 220415 (we need to get rid of the leading 20)
+def OpexCode = OpexDate - 20000000;
 
 # Option Days to Expiration
-def DTE = AbsValue(CountTradingDays(CurrentDate, OptionExpiryDate) - 1);
+#def DTE = CountTradingDays(CurrentDate, OptionExpiryDate);
+def DTE = DaysTillDate(OpexDate);
 
-# Centerstrike
-def CenterStrike = 
-    if (Mode == Mode.AUTO and !IsNaN(close)) then Round(close / CenterStrikeOffset, 0) * CenterStrikeOffset
-    else if (Mode == Mode.MANUAL and !IsNaN(close)) then ManualCenterStrike 
-    else CenterStrike[1]
+# Find the center strike - the price closest to ATM option
+def CenterStrike =
+if (StrikeMode == StrikeMode.AUTO and !IsNaN(close)) then Round(close / CenterStrikeOffset, 0) * CenterStrikeOffset
+else if (StrikeMode == StrikeMode.MANUAL and !IsNaN(close)) then ManualCenterStrike
+else CenterStrike[1]
 ;
 
 # Strike Spacing
-def StrikeSpacingC = 
-    fold i = 1 to MaxStrikeSpacing 
-    with spacing = 0 
+def StrikeSpacingC =
+    fold i = 1 to MaxStrikeSpacing
+with spacing = 1
     do if !IsNaN(
-        open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + (MaxStrikeSpacing - i)))
-    ) 
-    then MaxStrikeSpacing - i 
-    else if !IsNaN( 
-        volume(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + (MaxStrikeSpacing - i)))
-    ) 
-    then MaxStrikeSpacing - i 
-    else spacing
+        open_interest(("." + GetSymbolPart()) + AsPrice(OpexCode) + "P" + AsPrice(CenterStrike + (MaxStrikeSpacing - i)))
+    )
+        then MaxStrikeSpacing - i
+else if !IsNaN(
+    volume(("." + GetSymbolPart()) + AsPrice(OpexCode) + "P" + AsPrice(CenterStrike + (MaxStrikeSpacing - i)))
+)
+    then MaxStrikeSpacing - i
+else spacing
 ;
 def StrikeSpacing =
-    if (Mode == Mode.AUTO and !IsNaN(close)) then StrikeSpacingC 
-    else if (Mode == Mode.MANUAL and !IsNaN(close)) then ManualStrikeSpacing 
-    else StrikeSpacing[1]
+if (StrikeMode == StrikeMode.AUTO and !IsNaN(close)) then StrikeSpacingC
+else if (StrikeMode == StrikeMode.MANUAL and !IsNaN(close)) then ManualStrikeSpacing
+else StrikeSpacing[1]
 ;
 
+
+#-------------------------
+    # Debugging
+def Debug = no;
+plot DebugCurrentDate = CurrentDate - 20000000;
+DebugCurrentDate.SetHiding(!Debug);
+plot DebugOptionExpiryDate = OpexCode;
+DebugOptionExpiryDate.SetHiding(!Debug);
+plot DebugDTE = DTE;
+DebugDTE.SetHiding(!Debug);
+plot DebugCenterStrike = CenterStrike;
+DebugCenterStrike.SetHiding(!Debug);
+plot DebugStrikeSpacing = StrikeSpacing;
+DebugStrikeSpacing.SetHiding(!Debug);
 
 #-----------------------------------------------------------------------------------------------------------------#
 # Option Chain Data Gathering
 
 
-# Total Put Open Interest for selected chain depth and expiry series
-def TotalPutOpenInterest = 
-    fold poiIndex = -(StrikeDepth) to (StrikeDepth + 1) 
-    with poi = 0
-    do 
-        if !IsNaN(
-            open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + (StrikeSpacing * poiIndex)))
-        ) 
-        then poi + open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + (StrikeSpacing * poiIndex)))
-        else poi + 0
-;
-
+# Script to get the total open interest at a spot
+script TotalSpotOI {
+    input StrikeDepth = 1;
+    input OpexCode = 1;
+    input CenterStrike = 1;
+    input StrikeSpacing = 1;
+    input IsCall = yes;
+    def total =
+        fold index = -(StrikeDepth) to (StrikeDepth + 1)
+    with value = 0
+        do
+            if !IsNaN(
+                open_interest(("." + GetSymbolPart()) + AsPrice(OpexCode) + (if IsCall then "C" else "P") + AsPrice(CenterStrike + (StrikeSpacing * index)))
+)
+    then value + open_interest(("." + GetSymbolPart()) + AsPrice(OpexCode) + (if IsCall then "C" else "P") + AsPrice(CenterStrike + (StrikeSpacing * index)))
+else value + 0
+    ;
+    plot TotalSpotOI = total;
+}
 
 # Total Call Open Interest for selected chain depth and expiry series
-def TotalCallOpenInterest = 
-    fold coiIndex = -(StrikeDepth) to (StrikeDepth + 1) 
-    with coi = 0
-    do 
-        if !IsNaN(
-            open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike + (StrikeSpacing * coiIndex)))
-        )
-        then coi + open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike + (StrikeSpacing * coiIndex)))
-        else coi + 0
-;
+def TotalCallOpenInterest = TotalSpotOI(StrikeDepth, OpexCode, CenterStrike, StrikeSpacing, yes);
 
+# Total Put Open Interest for selected chain depth and expiry series
+def TotalPutOpenInterest = TotalSpotOI(StrikeDepth, OpexCode, CenterStrike, StrikeSpacing, no);
+
+
+# Script to get the total volume at a spot
+script TotalSpotVolume {
+    input StrikeDepth = 1;
+    input OpexCode = 1;
+    input CenterStrike = 1;
+    input StrikeSpacing = 1;
+    input IsCall = yes;
+    def total =
+        fold index = -(StrikeDepth) to (StrikeDepth + 1)
+    with value = 0
+        do
+            if !IsNaN(
+                volume(("." + GetSymbolPart()) + AsPrice(OpexCode) + (if IsCall then "C" else "P") + AsPrice(CenterStrike + (StrikeSpacing * index)))
+)
+    then value + volume(("." + GetSymbolPart()) + AsPrice(OpexCode) + (if IsCall then "C" else "P") + AsPrice(CenterStrike + (StrikeSpacing * index)))
+else value + 0
+    ;
+    plot TotalSpotVolume = total;
+}
+
+# Total Call Open Interest for selected chain depth and expiry series
+def TotalCallVolume = TotalSpotVolume(StrikeDepth, OpexCode, CenterStrike, StrikeSpacing, yes);
 
 # Total Put Volume for selected chain depth and expiry series
-def TotalPutVolume = 
-    fold pvIndex = -(StrikeDepth) to (StrikeDepth + 1) 
-    with pv = 0
-    do 
-        if !IsNaN(
-            volume(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + StrikeSpacing * pvIndex))
-        ) 
-        then pv + volume(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + StrikeSpacing * pvIndex))
-        else pv + 0
-;
-
-
-# Total Call Open Interest for selected chain depth and expiry series
-def TotalCallVolume = 
-    fold cvIndex = -(StrikeDepth) to (StrikeDepth + 1) 
-    with cv = 0
-    do 
-        if !IsNaN(
-            volume(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike + StrikeSpacing * cvIndex))
-        )
-        then cv + volume(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike + StrikeSpacing * cvIndex))
-        else cv + 0
-;
-
+def TotalPutVolume = TotalSpotVolume(StrikeDepth, OpexCode, CenterStrike, StrikeSpacing, no);
 
 # Greeks Calculations
 #
@@ -293,10 +344,17 @@ def TotalCallVolume =
 #         where d4 = d1 - IV(sqrt(t))
 # Vega  = S phi(d1) Sqrt(t)
 
-
 # Get the implied volatility for calculations
-# Series is the expiry starting at 1 and raising by 1 for each next expiry
+    # Series is the expiry starting at 1 and raising by 1 for each next expiry
 def IV = SeriesVolatility(series = OptionSeries);
+#plot ImpliedVolatility = IV;
+#def ATMCallPrice = close(symbol = ("." + GetSymbolPart()) + AsPrice(OpexCode) + "C" + AsPrice(CenterStrike), period = aggregationPeriod.DAY);
+#def IV =
+    #    if isNaN(((ATMCallPrice[1] * Sqrt(2 * Double.Pi)) / (RTHopen * Sqrt(DTE)))) then IV[1]
+#    else ((ATMCallPrice[1] * Sqrt(2 * Double.Pi)) / (RTHopen * Sqrt(DTE)))
+#;
+#plot Intraday_IV = if ClosedForm_IV_est > 0 then ClosedForm_IV_est else double.nan;
+#plot ImpVolatility = Imp_Volatility(symbol = ("." + GetSymbolPart()) + AsPrice(OpexCode) + "C" + AsPrice(CenterStrike), period = aggregationPeriod.DAY);
 def K = CenterStrike;
 def S = close;
 def r = GetInterestRate();
@@ -313,12 +371,12 @@ script N {
     def b5 = 1.330274429;
     def b6 =  .2316419;
     def e = 1 / (1 + b6 * a);
-    def i = 1 - 1 / Sqrt(2 * Double.Pi) * Exp(-Power(a, 2) / 2) * 
-           (b1 * e + b2 * e * e + b3 * 
+    def i = 1 - 1 / Sqrt(2 * Double.Pi) * Exp(-Power(a, 2) / 2) *
+        (b1 * e + b2 * e * e + b3 *
             Power(e, 3) + b4 * Power(e, 4) + b5 * Power(e, 5));
     plot CND = if data < 0
-               then 1 - i
-               else i;
+        then 1 - i
+else i;
 }
 
 # Delta
@@ -329,17 +387,18 @@ def Gamma = d2 / (S * (IV * Sqrt(t)));
 
 # Theta
 def Theta = -(-(S*d2*IV*(.5000)/
-             (2*sqrt(t)))-
-             (r*(exp(-r*t)*K))*N(d2)+(S*N(d1)*(.5000)))/365;
+        (2*sqrt(t)))-
+    (r*(exp(-r*t)*K))*N(d2)+(S*N(d1)*(.5000)))/365;
 # (.5000) variant less than .5 e(X/t)
 
 # Vega
 def Vega = (S*d2*sqrt(t))/100;
 
+
 # What method to use for calculating GEX
 #
 # ContributionShares:
-#     Call GEX = gamma * OI * 100 
+#     Call GEX = gamma * OI * 100
 #     Put GEX  = gamma * OI * 100 * -1
 #
 # Contribution:
@@ -350,8 +409,7 @@ def Vega = (S*d2*sqrt(t))/100;
 #     Call GEX = gamma * OI * 100 * Spot Price ^2 * 0.01
 #     Put GEX  = gamma * OI * 100 * Spot Price ^2 * 0.01 * -1
 #
-
-def GEXMethod;
+    def GEXMethod;
 switch (GEXCalculationMethod) {
     case Contribution:
         GEXMethod = 1;
@@ -361,48 +419,47 @@ switch (GEXCalculationMethod) {
         GEXMethod = 3;
 }
 
-# Total Put Gamma Exposure for selected chain depth and expiry series
-def TotalPutGammaExposure = 
-    fold pgexIndex = -(StrikeDepth) to (StrikeDepth + 1) 
-    with pgex = 0
-    do 
-        if !IsNaN(
-            open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + (StrikeSpacing * pgexIndex)))
-        ) 
-        then pgex + 
-            open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike + (StrikeSpacing * pgexIndex))) *
-            if GEXMethod == 1 then 
-                OptionPrice((CenterStrike + (StrikeSpacing * pgexIndex)), yes, DTE, close, IV, no, 0.0, r) 
-            else if GEXMethod == 2 then
-                Sqr(OptionPrice((CenterStrike + (StrikeSpacing * pgexIndex)), yes, DTE, close, IV, no, 0.0, r)) * 0.01
-            else
-                1
-            * (Exp(-(Sqr((Log(close / (CenterStrike + (StrikeSpacing * pgexIndex))) + ((r + (Sqr(IV) / 2)) * t)) / (IV * Sqrt(t))) / 2)) / Sqrt(2 * Double.Pi) / (close * (IV * Sqrt(t)))) *
-            100 *
-            -1
-        else pgex + 0
-;
+# Script to get the total gamma exposure at a spot
+script TotalSpotGEX {
+    input StrikeDepth = 1;
+    input OpexCode = 1;
+    input CenterStrike = 1;
+    input StrikeSpacing = 1;
+    input IsCall = yes;
+    input GEXMethod = 1;
+    input DTE = 1;
+    input IV = 1;
+    input r = 1;
+    input t = 1;
+    def total =
+        fold index = -(StrikeDepth) to (StrikeDepth + 1)
+    with value = 0
+        do
+            if !IsNaN(
+                open_interest(("." + GetSymbolPart()) + AsPrice(OpexCode) + (if IsCall then "C" else "P") + AsPrice(CenterStrike + (StrikeSpacing * index)))
+)
+    then value +
+    open_interest(("." + GetSymbolPart()) + AsPrice(OpexCode) + (if IsCall then "C" else "P") + AsPrice(CenterStrike + (StrikeSpacing * index))) *
+    if GEXMethod == 1 then
+    OptionPrice((CenterStrike + (StrikeSpacing * index)), !IsCall, DTE, close, IV, no, 0.0, r)
+else if GEXMethod == 2 then
+    Sqr(OptionPrice((CenterStrike + (StrikeSpacing * index)), !IsCall, DTE, close, IV, no, 0.0, r)) * 0.01
+else
+    1
+    * (Exp(-(Sqr((Log(close / (CenterStrike + (StrikeSpacing * index))) + ((r + (Sqr(IV) / 2)) * t)) / (IV * Sqrt(t))) / 2)) / Sqrt(2 * Double.Pi) / (close * (IV * Sqrt(t)))) *
+    100 *
+    if IsCall then 1 else -1
+else value + 0
+    ;
+    plot TotalSpotGEX = total;
+}
 
 # Total Call Gamma Exposure for selected chain depth and expiry series
-def TotalCallGammaExposure = 
-    fold cgexIndex = -(StrikeDepth) to (StrikeDepth + 1) 
-    with cgex = 0
-    do 
-        if !IsNaN(
-            open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike + (StrikeSpacing * cgexIndex)))
-        )
-        then cgex + 
-            open_interest(("." + GetSymbolPart()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike + (StrikeSpacing * cgexIndex))) *
-            if GEXMethod == 1 then 
-                OptionPrice((CenterStrike + (StrikeSpacing * cgexIndex)), no, DTE, close, IV, no, 0.0, r) 
-            else if GEXMethod == 2 then
-                Sqr(OptionPrice((CenterStrike + (StrikeSpacing * cgexIndex)), no, DTE, close, IV, no, 0.0, r)) * 0.01
-            else
-                1
-            * (Exp(-(Sqr((Log(close / (CenterStrike + (StrikeSpacing * cgexIndex))) + ((r + (Sqr(IV) / 2)) * t)) / (IV * Sqrt(t))) / 2)) / Sqrt(2 * Double.Pi) / (close * (IV * Sqrt(t)))) *
-            100
-        else cgex + 0
-;
+def TotalCallGammaExposure = TotalSpotGEX(StrikeDepth, OpexCode, CenterStrike, StrikeSpacing, yes, GEXMethod, DTE, IV, r, t);
+
+# Total Put Gamma Exposure for selected chain depth and expiry series
+def TotalPutGammaExposure = TotalSpotGEX(StrikeDepth, OpexCode, CenterStrike, StrikeSpacing, no, GEXMethod, DTE, IV, r, t);
+
 
 
 #-----------------------------------------------------------------------------------------------------------------#
@@ -418,17 +475,17 @@ AddLabel(yes, DataType, Color.LIGHT_GRAY);
 AddLabel(yes, Series, Color.LIGHT_GRAY);
 
 # Center Strike Label
-AddLabel(ShowStrikeInfo, "Center Strike: " + AsDollars(CenterStrike), Color.LIGHT_GRAY);
+AddLabel(ShowStrikeInfo, "Center Strike: " + AsDollars(CenterStrike), if StrikeMode == StrikeMode.AUTO then Color.LIGHT_GRAY else Color.RED);
+
+# Strike Spacing Label
+AddLabel(ShowStrikeInfo, "Strike Spacing: " + AsDollars(StrikeSpacing), if StrikeMode == StrikeMode.AUTO then Color.LIGHT_GRAY else Color.RED);
 
 # Chain Depth Label
 AddLabel(ShowStrikeInfo, "Strike Depth: +/-" + StrikeDepth, Color.LIGHT_GRAY);
 
-# Strike Spacing Label
-AddLabel(ShowStrikeInfo, "Strike Spacing: " + AsDollars(StrikeSpacing), Color.LIGHT_GRAY);
-
 # Current ATM Options Labels
-Addlabel(ShowStrikeInfo, "ATM Put: " + ("." + GetSymbol()) + AsPrice(OptionExpiryDate - 20000001) + "P" + AsPrice(CenterStrike), Color.LIGHT_RED);
-Addlabel(ShowStrikeInfo, "ATM Call: " + ("." + GetSymbol()) + AsPrice(OptionExpiryDate - 20000001) + "C" + AsPrice(CenterStrike), Color.LIGHT_GREEN);
+Addlabel(ShowStrikeInfo, "ATM Put: " + ("." + GetSymbol()) + AsPrice(OpexCode) + "P" + AsPrice(CenterStrike), GlobalColor("Call"));
+Addlabel(ShowStrikeInfo, "ATM Call: " + ("." + GetSymbol()) + AsPrice(OpexCode) + "C" + AsPrice(CenterStrike), GlobalColor("Put"));
 
 # Create a center line
 plot ZeroLine = 0;
@@ -442,7 +499,7 @@ CallOpenInterest.SetDefaultColor(GlobalColor("Call"));
 AddLabel(ShowLabels and DataType == DataType.OpenInterest, "CallOI: " + CallOpenInterest, GlobalColor("Call"));
 
 # Put Open Interest
-plot PutOpenInterest = -(TotalPutOpenInterest); # Make negative to flip under axis
+plot PutOpenInterest = if FlipPuts then -(TotalPutOpenInterest) else TotalPutOpenInterest;
 PutOpenInterest.SetHiding(!ShowLines or DataType != DataType.OpenInterest);
 PutOpenInterest.SetPaintingStrategy(PaintingStrategy.LINE);
 PutOpenInterest.SetDefaultColor(GlobalColor("Put"));
@@ -450,26 +507,26 @@ AddLabel(ShowLabels and DataType == DataType.OpenInterest, "PutOI: " + AbsValue(
 
 # Create Clouds for Open Interest
 AddCloud(
-    if ShowClouds and DataType == DataType.OpenInterest then CallOpenInterest else Double.NaN, 
-    if ShowClouds and DataType == DataType.OpenInterest then Zeroline else Double.NaN, 
+if ShowClouds and DataType == DataType.OpenInterest then CallOpenInterest else Double.NaN,
+if ShowClouds and DataType == DataType.OpenInterest then Zeroline else Double.NaN,
     GlobalColor("CallCloud"), GlobalColor("PutCloud")
 );
 AddCloud(
-    if ShowClouds and DataType == DataType.OpenInterest then Zeroline else Double.NaN, 
-    if ShowClouds and DataType == DataType.OpenInterest then PutOpenInterest else Double.NaN, 
-    GlobalColor("PutCloud"), GlobalColor("CallCloud")
+if ShowClouds and DataType == DataType.OpenInterest then Zeroline else Double.NaN,
+if ShowClouds and DataType == DataType.OpenInterest then PutOpenInterest else Double.NaN,
+    GlobalColor("PutCloud"), GlobalColor("PutCloud")
 );
 
 # Hull Moving Average of Put Open Interest
 plot PutOpenInterestAverage = hullmovingavg(PutOpenInterest);
 PutOpenInterestAverage.SetHiding(!ShowAverages or DataType != DataType.OpenInterest);
-PutOpenInterestAverage.SetDefaultColor(Color.ORANGE);
+PutOpenInterestAverage.SetDefaultColor(GlobalColor("PutAverage"));
 PutOpenInterestAverage.SetStyle(Curve.MEDIUM_DASH);
 
 # Hull Moving Average of Call Open Interest
 plot CallOpenInterestAverage = hullmovingavg(CallOpenInterest);
 CallOpenInterestAverage.SetHiding(!ShowAverages or DataType != DataType.OpenInterest);
-CallOpenInterestAverage.SetDefaultColor(Color.LIGHT_GREEN);
+CallOpenInterestAverage.SetDefaultColor(GlobalColor("CallAverage"));
 CallOpenInterestAverage.SetStyle(Curve.MEDIUM_DASH);
 
 # Call Volume
@@ -480,44 +537,45 @@ CallVolume.SetDefaultColor(GlobalColor("Call"));
 AddLabel(ShowLabels and DataType == DataType.Volume, "CallVol: " + CallVolume, GlobalColor("Call"));
 
 # Put Volume
-plot PutVolume = -(TotalPutVolume); # Make negative to flip under axis
+plot PutVolume = if FlipPuts then -(TotalPutVolume) else TotalPutVolume;
 PutVolume.SetHiding(!ShowLines or DataType != DataType.Volume);
 PutVolume.SetPaintingStrategy(PaintingStrategy.LINE);
 PutVolume.SetDefaultColor(GlobalColor("Put"));
 AddLabel(ShowLabels and DataType == DataType.Volume, "PutVol: " + AbsValue(PutVolume), GlobalColor("Put"));
 
 # Create Clouds for Volume
-AddCloud(
-    if ShowClouds and DataType == DataType.Volume then CallVolume else Double.NaN, 
-    if ShowClouds and DataType == DataType.Volume then Zeroline else Double.NaN, 
-    GlobalColor("CallCloud"), GlobalColor("PutCloud")
+    AddCloud(
+if ShowClouds and DataType == DataType.Volume then CallVolume else Double.NaN,
+if ShowClouds and DataType == DataType.Volume then Zeroline else Double.NaN,
+    GlobalColor("CallCloud"), GlobalColor("CallCloud")
 );
 AddCloud(
-    if ShowClouds and DataType == DataType.Volume then Zeroline else Double.NaN, 
-    if ShowClouds and DataType == DataType.Volume then PutVolume else Double.NaN, 
+if ShowClouds and DataType == DataType.Volume then Zeroline else Double.NaN,
+if ShowClouds and DataType == DataType.Volume then PutVolume else Double.NaN,
     GlobalColor("PutCloud"), GlobalColor("CallCloud")
 );
 
 # Hull Moving Average of Put Volume
 plot PutVolumeAverage = hullmovingavg(PutVolume);
 PutVolumeAverage.SetHiding(!ShowAverages or DataType != DataType.Volume);
-PutVolumeAverage.SetDefaultColor(Color.ORANGE);
+PutVolumeAverage.SetDefaultColor(GlobalColor("PutAverage"));
 PutVolumeAverage.SetStyle(Curve.MEDIUM_DASH);
 
 # Hull Moving Average of Call Volume
 plot CallVolumeAverage = hullmovingavg(CallVolume);
 CallVolumeAverage.SetHiding(!ShowAverages or DataType != DataType.Volume);
-CallVolumeAverage.SetDefaultColor(Color.LIGHT_GREEN);
+CallVolumeAverage.SetDefaultColor(GlobalColor("CallAverage"));
 CallVolumeAverage.SetStyle(Curve.MEDIUM_DASH);
+
+# Gamma Exposure
+plot GammaExposure = if IsNaN(TotalCallGammaExposure + TotalPutGammaExposure) then 0 else (TotalCallGammaExposure + TotalPutGammaExposure);
+GammaExposure.SetHiding(DataType != DataType.GammaExposure);
+GammaExposure.SetPaintingStrategy(PaintingStrategy.LINE);
+GammaExposure.SetDefaultColor(GlobalColor("GEX"));
+AddLabel(DataType == DataType.GammaExposure, "GEX: " + GammaExposure, GlobalColor("GEX"));
 
 # Greeks Labels
 AddLabel(ShowGreeks, "Delta: " + Delta, Color.WHITE);
 AddLabel(ShowGreeks, "Gamma: " + Gamma, Color.WHITE);
 AddLabel(ShowGreeks, "Theta: " + Theta, Color.WHITE);
 AddLabel(ShowGreeks, "Vega: " + Vega, Color.WHITE);
-
-# Gamma Exposure
-plot GammaExposure = TotalPutGammaExposure + TotalCallGammaExposure;
-GammaExposure.SetHiding(DataType != DataType.GammaExposure);
-GammaExposure.SetPaintingStrategy(PaintingStrategy.LINE);
-GammaExposure.SetDefaultColor(GlobalColor("GEX"));
